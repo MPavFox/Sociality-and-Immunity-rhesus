@@ -1,0 +1,1074 @@
+---
+title: "Sociality and Immunity rhesus macaques"
+author: "Melissa Pavez-Fox"
+date: "23/04/2021"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#opts_chunk$set(dev= tikz, dev.args=list(bg="white"))
+
+
+```
+
+
+
+```{r load-packages, include=FALSE}
+library(devtools)
+library(MCMCglmm)
+library(magrittr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ViolineHills)
+library(reshape2)
+
+```
+
+Load data and preliminary checkings
+===================================
+
+Load data
+```{r echo=-1, message=FALSE,comment=""}
+setwd("C:/Users/mp660/OneDrive - University of Exeter/PhD/2nd-Chapter/Data for markdown")
+#data set including animals with behavour and weight data
+weight_dataset <- read.csv("weight_dataset.csv")
+
+#data set including animals with behavour and cbc data
+cbc_dataset <- read.csv("cbc_dataset.csv")
+
+#Check sample size by sex
+table(weight_dataset$sex)#weight data set
+
+table(cbc_dataset$sex)#cbc data set
+
+#Check that there are not empty cells
+any(is.na(weight_dataset))#All individuals have liver and spleen data
+any(is.na(cbc_dataset))#All individuals have RBC, WBC and PTL data
+
+```
+
+Identify and remove outliers
+----------------------------
+We used the Mahalanobis distance to identify outliers in a multivariate space
+```{r comment=""}
+#create a dataframe containing only the columns for spleen and liver weight
+df <- weight_dataset[, c(13:14)] 
+#compute the Mahalanobis distance
+df$mahal  <- mahalanobis(df, colMeans(df), cov(df))
+#compute p-value using chi-square
+df$p <- pchisq(df$mahal, df=1, lower.tail=FALSE) 
+which(df$p < 0.01) #Check outliers
+weight_dataset <- weight_dataset[df$p > 0.01,]#Remove outliers
+
+#create a dataframe containing only the columns for RBC, WBC and PTL
+dc <- cbc_dataset[, c(12:14)]
+ #compute the Mahalanobis distance
+dc$mahal  <- mahalanobis(dc, colMeans(dc), cov(dc))
+#compute p-value using chi-square
+dc$p <- pchisq(dc$mahal, df=2, lower.tail=FALSE) #compute p-value using chi-square
+which(dc$p < 0.01) #Check outliers
+cbc_dataset <- cbc_dataset[dc$p > 0.01,]#Remove outliers
+
+#Final sample size per dataset
+
+table(weight_dataset$sex)#Weight
+
+
+table(cbc_dataset$sex)#CBC
+
+```
+
+MCMC Generalized Linear Mixed Models
+====================================
+
+We fit multivariate models for each data set in order to estimate how sociality measures influence: 
+i) size of organs involved in immune response and, ii) absolute count of blood cells. The models included as fixed effects:
+
+* Age 
+* Age2 
+* Sex 
+* Behavioural group:
+  - HH (no cbc data)
+  - KK
+  - S
+* Body weight 
+* Social status (continuous)
+* Social integration: 
+Grooming degree (Model 1) OR Grooming eigenvector centrality (Model 2)
+
+Random effect: 
+* Individual ID
+
+Dependent variables:
+* Organ weight models:
+- Spleen (gr)
+- Liver (gr)
+
+* Blood cells:
+- Platelets (10^6 cells/mL)
+- Erythrocytes (10^9 cells/mL)
+- Leukocytes (10^6 cells/mL)
+
+
+For all the models we standardised the response variables and all continuous predictors. 
+Interaction terms between social integration measures and social status with group were only retained upon significance.
+In all the priors, we fixed the residual (within-individual) variance to a small positive number (0.0001) due to the absence of repeated measures.
+
+---------------------------
+```{r results="hide"}
+
+#Prior for models predicting organs weight
+prior_sl <- list(R= list(R= list(V=diag(2)*0.0001, nu = 1.002, fix= 1)),
+               G = list(G1 = list(V = diag(2), nu= 2)))
+
+
+#Model 1 Spleen-Liver
+mw_all_gd <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
+                              trait:(scale(age) + I(age^2)) + 
+                              trait:scale(body_wt) + trait:scale(Grooming_deg) + 
+                             trait:scale(perc.rank) + trait:Group + trait:sex,
+                            random =~us(trait):id,
+                           rcov=~ idh(trait):units,
+                           family = c('gaussian','gaussian'),
+                           prior = prior_sl,
+                          nitt= 300000,
+                          burnin = 2000,
+                          thin= 100,
+                           data= as.data.frame(weight_dataset))
+
+
+#Model 2 Spleen-Liver
+mw_all_ge <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
+                        trait:(scale(age) + I(age^2)) + 
+                        trait:scale(body_wt) + trait:(scale(Grooming_eigen)*Group) + 
+                        trait:scale(perc.rank)  + trait:sex , 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = c('gaussian','gaussian'),
+                         prior = prior_sl,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(weight_dataset))
+
+#Change order of levels in Group to get the estimate for all pair-wise comparisons
+weight_dataset$Group1 <- factor(weight_dataset$Group, levels = c('S','HH','KK'))
+
+#Rerun Model 2 spleen-liver
+mw_all_ge0 <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
+                        trait:(scale(age) + I(age^2)) + 
+                        trait:scale(body_wt) + trait:(scale(Grooming_eigen)*Group1) + 
+                        trait:scale(perc.rank)  + trait:sex , 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = c('gaussian','gaussian'),
+                         prior = prior_sl,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(weight_dataset))
+
+
+#Prior for models predicting blood cells count
+prior_cbc <- list(R= list(R= list(V=diag(3)*0.0001, nu = 1.002, fix= 1)),
+               G = list(G1 = list(V = diag(3), nu= 3)))
+
+
+#Model 1 CBC
+mcbc_all_gd <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ - 1 +
+                           trait:(scale(age) + I(age^2)) + 
+                           trait:scale(body_wt) + trait:scale(Grooming_deg) + 
+                          trait:scale(perc.rank) + trait:sex + trait:Group, 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = rep('gaussian',3),
+                         prior = prior_cbc,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(cbc_dataset))
+
+#Model 2 CBC
+mcbc_all_ge <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ -1 + 
+                           trait:(scale(age) + I(age^2)) + 
+                           trait:scale(body_wt) + trait:scale(Grooming_eigen) +
+                          trait:scale(perc.rank) + trait:sex + trait:Group, 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = rep('gaussian',3),
+                         prior = prior_cbc,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(cbc_dataset))
+
+```
+
+
+Testing robustness of models
+----------------------------
+
+Sensitiviy to priors testing Model 1 for both datasets
+```{r results="hide"}
+#Parameter expanded priors organ weight models
+p_exp1 <- list(R= list(R= list(V=diag(2)*0.0001, nu = 1.002, fix= 1)), 
+               G = list(G1 = list(V = diag(2), nu= 2,
+                                  alpha.mu = rep(0,2),
+                                  alpha.V = diag(25^2,2))))
+
+
+#Model 1 spleen-liver with parameter expanded priors
+mw_all_gd_pexp <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
+                             trait:(scale(age) + I(age^2)) + 
+                           trait:scale(body_wt) + trait:Grooming_deg + 
+                             trait:Group + trait:scale(perc.rank) + trait:sex , 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = c('gaussian','gaussian'),
+                         prior = p_exp1,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(weight_dataset))
+
+
+#Parameter expanded priors CBC models
+p_exp2 <- list(R= list(R= list(V=diag(3)*0.0001, nu = 1.002, fix= 1)), 
+               G = list(G1 = list(V = diag(3), nu= 3,
+                                  alpha.mu = rep(0,3),
+                                  alpha.V = diag(25^2,3))))
+
+
+#Model 1 CBC with parameter expanded priors
+mcbc_all_gd_pexp <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ -1 + 
+                              trait:(scale(age) + I(age^2)) + 
+                           trait:scale(body_wt) + trait:Grooming_deg +
+                          trait:scale(perc.rank) + trait:sex + trait:Group, 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = rep('gaussian',3),
+                         prior = p_exp2,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(cbc_dataset))
+
+
+```
+
+
+Sensitiviy to priors testing Model 2 for both datasets
+```{r results="hide"}
+
+#Model 2 spleen-liver with parameter expanded priors
+mw_all_ge_pexp <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
+                        trait:(scale(age) + I(age^2)) + 
+                        trait:scale(body_wt) + trait:(Grooming_eigen*Group) + 
+                        trait:scale(perc.rank)  + trait:sex , 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = c('gaussian','gaussian'),
+                         prior = p_exp1,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(weight_dataset))
+
+
+#Model 2 CBC with parameter expanded priors
+mcbc_all_ge_pexp <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ -1 + 
+                           trait:(scale(age) + I(age^2)) + 
+                           trait:scale(body_wt) + trait:Grooming_eigen +
+                          trait:scale(perc.rank) + trait:sex + trait:Group, 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = rep('gaussian',3),
+                         prior = p_exp2,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(cbc_dataset))
+
+
+```
+
+
+Prior sensitivity for covariance spleen-liver Model 1:
+```{r fig.cap="Prior sensitivity for spleen-liver covariance Model 1", fig.width= 6, fig.height= 6}
+
+plot(density(
+mw_all_gd_pexp$
+VCV[,
+'traitliver_wt:traitspleen_wt.id'
+],
+bw=0.02),
+ylim=c(0,6),main= "",
+xlab="Spleen-Liver covariance",
+ylab="Posterior density")
+lines(density(
+mw_all_gd$VCV[,
+'traitliver_wt:traitspleen_wt.id'
+],
+bw = 0.02),
+col="red", lty=2)
+legend(x = "topright", col=c("black", "red"),
+lwd=3,
+legend = c("With parameter-expanded prior", "With inverse-Gamma prior"),
+lty=c(1,2))
+
+```
+
+Prior sensitivity for covariance in CBC Model 1:
+```{r fig.cap="Prior sensitivity for RBC-WBC covariance Model 1", fig.width= 6, fig.height= 6}
+
+plot(density(mcbc_all_gd_pexp$VCV[,'traitRBC:traitWBCs.id'], 
+bw=0.02),
+ylim=c(0,6),
+main="",
+xlab="RBC-WBCs covariance",
+ylab="Posterior density")
+lines(density(
+mcbc_all_gd$VCV[,
+'traitRBC:traitWBCs.id'
+],
+bw = 0.02),
+col="red", lty=2)
+legend(x = "topright", col=c("black", "red"),
+lwd=3,
+legend = c("With parameter-expanded prior", "With inverse-Gamma prior"),
+lty=c(1,2))
+
+```
+
+Prior sensitivity for covariance spleen-liver Model 2:
+```{r fig.cap="Prior sensitivity for spleen-liver covariance Model 2", fig.width= 6, fig.height= 6.5}
+
+plot(density(
+mw_all_ge_pexp$
+VCV[,
+'traitliver_wt:traitspleen_wt.id'
+],
+bw=0.02),
+ylim=c(0,6),
+main="",
+xlab="Spleen-Liver covariance",
+ylab="Posterior density")
+lines(density(
+mw_all_ge$VCV[,
+'traitliver_wt:traitspleen_wt.id'
+],
+bw = 0.02),
+col="red", lty=2)
+legend(x = "topright", col=c("black", "red"),
+lwd=3,
+legend = c("With parameter-expanded prior", "With inverse-Gamma prior"),
+lty=c(1,2))
+
+```
+
+Prior sensitivity for covariance in CBC Model 2:
+```{r fig.cap="Prior sensitivity for RBC-WBC covariance Model 2", fig.width= 6, fig.height= 6}
+
+plot(density(mcbc_all_ge_pexp$VCV[,'traitRBC:traitWBCs.id'], 
+bw=0.02),
+ylim=c(0,6),
+main="",
+xlab="RBC-WBCs covariance",
+ylab="Posterior density")
+lines(density(
+mcbc_all_ge$VCV[,
+'traitRBC:traitWBCs.id'
+],
+bw = 0.02),
+col="red", lty=2)
+legend(x = "topright", col=c("black", "red"),
+lwd=3,
+legend = c("With parameter-expanded prior", "With inverse-Gamma prior"),
+lty=c(1,2))
+
+```
+
+
+Check for autocorrelation < 0.1
+```{r results="hide"}
+#Model 1 Spleen-liver
+autocorr.diag(mw_all_gd$Sol)#Fixed effects
+
+autocorr.diag(mw_all_gd$VCV)#Random effect
+
+#Model 2 -Spleen Liver
+autocorr.diag(mw_all_ge$Sol)#Fixed effects
+
+autocorr.diag(mw_all_ge$VCV)#Random effect
+
+#Model 1 CBC
+autocorr.diag(mcbc_all_gd$Sol)#Fixed effects
+
+autocorr.diag(mcbc_all_gd$VCV)#Random effect
+
+#Model 2 CBC
+autocorr.diag(mcbc_all_ge$Sol)#Fixed effects
+
+autocorr.diag(mcbc_all_ge$VCV)#Random effect
+
+```
+
+Results
+=======
+
+Model 1 Spleen-Liver
+--------------------
+
+Variance and covariance components
+```{r comment=""}
+
+#Compute correlation for covariance
+mw_all_gd_cov <- mw_all_gd$VCV[,'traitliver_wt:traitspleen_wt.id']/
+        (sqrt(mw_all_gd$VCV[,'traitliver_wt:traitliver_wt.id'])*
+         sqrt(mw_all_gd$VCV[,'traitspleen_wt:traitspleen_wt.id']))
+
+sl_random_eff1 <- list(mw_all_gd$VCV[,'traitspleen_wt:traitspleen_wt.id'], 
+                       mw_all_gd$VCV[,'traitliver_wt:traitliver_wt.id'],
+                       mw_all_gd$VCV[,'traitspleen_wt:traitliver_wt.id'],
+                       mw_all_gd_cov)
+
+sl_table_random1 <- data.frame(parameter = c('Variance spleen','Variance liver',
+                                             'Covariance','Correlation'),
+                           estimate = unlist(lapply(sl_random_eff1, mean)),
+                           CI = unlist(lapply(sl_random_eff1, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+sl_table_random1
+
+```
+
+Fixed effects
+```{r comment=""}
+
+sl_fixed_eff1 <- list(mw_all_gd$Sol[,'traitspleen_wt:scale(age)'],
+                      mw_all_gd$Sol[,'traitliver_wt:scale(age)'],
+                      mw_all_gd$Sol[,'traitspleen_wt:I(age^2)'], 
+                      mw_all_gd$Sol[,'traitliver_wt:I(age^2)'],
+                      mw_all_gd$Sol[,'traitspleen_wt:scale(body_wt)'], 
+                      mw_all_gd$Sol[,'traitliver_wt:scale(body_wt)'],
+                      mw_all_gd$Sol[,'traitspleen_wt:scale(Grooming_deg)'],
+                      mw_all_gd$Sol[,'traitliver_wt:scale(Grooming_deg)'],
+                      mw_all_gd$Sol[,'traitspleen_wt:GroupKK'],
+                      mw_all_gd$Sol[,'traitliver_wt:GroupKK'],
+                      mw_all_gd$Sol[,'traitspleen_wt:GroupS'],
+                      mw_all_gd$Sol[,'traitliver_wt:GroupS'],
+                      mw_all_gd$Sol[,'traitspleen_wt:scale(perc.rank)'], 
+                      mw_all_gd$Sol[,'traitliver_wt:scale(perc.rank)'],
+                      mw_all_gd$Sol[,'traitspleen_wt:sexM'],
+                      mw_all_gd$Sol[,'traitliver_wt:sexM'])
+
+sl_table_fixed1 <- data.frame(trait = c('Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver'),
+                          parameter = c('Age','Age',
+                                        'Age2','Age2',
+                                        'Body_wt','Body_wt',
+                                        'Groom_deg','Groom_deg',
+                                        'Group KK','Group KK',
+                                        'Group S', 'Group S',
+                                        'Rank', 'Rank', 
+                                        'Sex M', 'Sex M'),
+                           estimate = unlist(lapply(sl_fixed_eff1, mean)),
+                           CI = unlist(lapply(sl_fixed_eff1, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+sl_table_fixed1
+                           
+```
+
+Model 2 Spleen-Liver
+--------------------
+
+Variance and covariance components
+```{r comment=""}
+#Compute correlation
+mw_all_ge_cov <- mw_all_ge$VCV[,'traitliver_wt:traitspleen_wt.id']/
+        (sqrt(mw_all_ge$VCV[,'traitliver_wt:traitliver_wt.id'])*
+         sqrt(mw_all_ge$VCV[,'traitspleen_wt:traitspleen_wt.id']))
+
+sl_random_eff2 <- list(mw_all_ge$VCV[,'traitspleen_wt:traitspleen_wt.id'], 
+                       mw_all_ge$VCV[,'traitliver_wt:traitliver_wt.id'],
+                       mw_all_ge$VCV[,'traitliver_wt:traitspleen_wt.id'],
+                       mw_all_ge_cov)
+
+sl_table_random2 <- data.frame(parameter = c('Variance spleen','Variance liver',
+                                             'Covariance','Correlation'),
+                           estimate = unlist(lapply(sl_random_eff2, mean)),
+                           CI = unlist(lapply(sl_random_eff2, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+sl_table_random2                          
+
+```
+
+Fixed effects
+```{r comment=""}
+
+sl_fixed_eff2 <- list(mw_all_ge$Sol[,'traitspleen_wt:scale(age)'],
+                      mw_all_ge$Sol[,'traitliver_wt:scale(age)'],
+                      mw_all_ge$Sol[,'traitspleen_wt:I(age^2)'], 
+                      mw_all_ge$Sol[,'traitliver_wt:I(age^2)'],
+                      mw_all_ge$Sol[,'traitspleen_wt:scale(body_wt)'],
+                      mw_all_ge$Sol[,'traitliver_wt:scale(body_wt)'],
+                      mw_all_ge$Sol[,'traitspleen_wt:Grooming_eigen'],
+                      mw_all_ge$Sol[,'traitliver_wt:Grooming_eigen'],
+                      mw_all_ge$Sol[,'traitspleen_wt:GroupKK'],
+                      mw_all_ge$Sol[,'traitliver_wt:GroupKK'],
+                      mw_all_ge$Sol[,'traitspleen_wt:GroupS'],
+                      mw_all_ge$Sol[,'traitliver_wt:GroupS'],
+                      mw_all_ge$Sol[,'traitspleen_wt:scale(perc.rank)'], 
+                      mw_all_ge$Sol[,'traitliver_wt:scale(perc.rank)'],
+                      mw_all_ge$Sol[,'traitspleen_wt:sexM'],
+                      mw_all_ge$Sol[,'traitliver_wt:sexM'],
+                      mw_all_ge0$Sol[,'traitspleen_wt:Grooming_eigen:Group1KK'],
+                      #S as intercept
+                      mw_all_ge0$Sol[,'traitliver_wt:Grooming_eigen:Group1KK'],
+                      #S as intercept
+                      mw_all_ge0$Sol[,'traitspleen_wt:Grooming_eigen:Group1HH'],
+                      #S as intercept
+                      mw_all_ge0$Sol[,'traitliver_wt:Grooming_eigen:Group1HH'],
+                      #S as intercept
+                      mw_all_ge$Sol[,'traitspleen_wt:Grooming_eigen:GroupKK'],
+                      #HH as intercept
+                      mw_all_ge$Sol[,'traitliver_wt:Grooming_eigen:GroupKK'])
+                      #HH as intercept
+                      
+
+sl_table_fixed2 <- data.frame(trait = c('Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver', 
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver',
+                                        'Spleen','Liver'),
+                            parameter = c('Age','Age',
+                                          'Age2', 'Age2',
+                                          'Body_wt','Body_wt',
+                                         'Groom_eigen','Groom_eigen',
+                                         'Group KK','Group KK', 
+                                         'Group S','Group S',
+                                         'Rank', 'Rank', 
+                                         'Sex M', 'Sex M',
+                                         'Groom_eigen x Group KK (S)',
+                                         'Groom_eigen x Group KK (S)',
+                                         'Groom_eigen x Group HH (S)',
+                                         'Groom_eigen x Group HH (S)',
+                                         'Groom_eigen x Group KK (HH)',
+                                         'Groom_eigen x Group KK (HH)'),
+                           estimate = unlist(lapply(sl_fixed_eff2, mean)),
+                           CI = unlist(lapply(sl_fixed_eff2, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+sl_table_fixed2
+
+```
+
+Model 1 CBC
+-----------
+
+Variance and covariance components
+```{r comment=""}
+#Compute correlation
+cbc_all_gd_cor1 <- mcbc_all_gd$VCV[,'traitRBC:traitWBCs.id']/
+            (sqrt(mcbc_all_gd$VCV[,'traitRBC:traitRBC.id'])*
+            sqrt(mcbc_all_gd$VCV[,'traitWBCs:traitWBCs.id']))
+
+cbc_all_gd_cor2 <- mcbc_all_gd$VCV[,'traitRBC:traitPLT.id']/
+          (sqrt(mcbc_all_gd$VCV[,'traitRBC:traitRBC.id'])*
+           sqrt(mcbc_all_gd$VCV[,'traitPLT:traitPLT.id']))
+
+cbc_all_gd_cor3 <- mcbc_all_gd$VCV[,'traitPLT:traitWBCs.id']/
+          (sqrt(mcbc_all_gd$VCV[,'traitPLT:traitPLT.id'])*
+          sqrt(mcbc_all_gd$VCV[,'traitWBCs:traitWBCs.id']))
+
+cbc_random_eff1 <- list(mcbc_all_gd$VCV[,'traitWBCs:traitWBCs.id'],
+                        mcbc_all_gd$VCV[,'traitRBC:traitRBC.id'], 
+                        mcbc_all_gd$VCV[,'traitPLT:traitPLT.id'],
+                        mcbc_all_gd$VCV[,'traitRBC:traitWBCs.id'],
+                        mcbc_all_gd$VCV[,'traitRBC:traitPLT.id'],
+                        mcbc_all_gd$VCV[,'traitWBCs:traitPLT.id'],
+                        cbc_all_gd_cor1,cbc_all_gd_cor2,cbc_all_gd_cor3)
+
+cbc_table_random1 <- data.frame(parameter = c('Variance WBC','Variance RBC',
+                                              'Variance PTL', 'Covariance RBC-WBC',
+                                              'Covariance RBC-PTL', 'Covariance WBC-PTL',
+                                              'Cor RBC-WBC',
+                                              'Cor RBC-PLT','Cor PLT-WBC'),
+                           estimate = unlist(lapply(cbc_random_eff1, mean)),
+                           CI = unlist(lapply(cbc_random_eff1, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+cbc_table_random1
+                           
+```
+
+Fixed effects
+```{r comment=""}
+
+cbc_fixed_eff1 <- list(mcbc_all_gd$Sol[,'traitWBCs:scale(age)'],
+                       mcbc_all_gd$Sol[,'traitRBC:scale(age)'],
+                       mcbc_all_gd$Sol[,'traitPLT:scale(age)'],
+                       mcbc_all_gd$Sol[,'traitWBCs:I(age^2)'],
+                       mcbc_all_gd$Sol[,'traitRBC:I(age^2)'],
+                       mcbc_all_gd$Sol[,'traitPLT:I(age^2)'],
+                       mcbc_all_gd$Sol[,'traitWBCs:scale(body_wt)'],
+                       mcbc_all_gd$Sol[,'traitRBC:scale(body_wt)'],
+                       mcbc_all_gd$Sol[,'traitPLT:scale(body_wt)'],
+                       mcbc_all_gd$Sol[,'traitWBCs:Grooming_deg'],
+                       mcbc_all_gd$Sol[,'traitRBC:Grooming_deg'],
+                       mcbc_all_gd$Sol[,'traitPLT:Grooming_deg'],
+                       mcbc_all_gd$Sol[,'traitWBCs:scale(perc.rank)'],
+                       mcbc_all_gd$Sol[,'traitRBC:scale(perc.rank)'],
+                       mcbc_all_gd$Sol[,'traitPLT:scale(perc.rank)'],
+                       mcbc_all_gd$Sol[,'traitWBCs:sexM'],
+                       mcbc_all_gd$Sol[,'traitRBC:sexM'],
+                       mcbc_all_gd$Sol[,'traitPLT:sexM'],
+                       mcbc_all_gd$Sol[,'traitWBCs:GroupS'],
+                       mcbc_all_gd$Sol[,'traitRBC:GroupS'],
+                       mcbc_all_gd$Sol[,'traitPLT:GroupS'])
+
+cbc_table_fixed1 <- data.frame(trait = c('WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL'),
+                          parameter = c('Age','Age','Age',
+                                        'Age2','Age2','Age2',
+                                        'Body_wt','Body_wt','Body_wt',
+                                        'Groom_deg','Groom_deg',
+                                        'Groom_deg', 'Rank','Rank',
+                                        'Rank','Sex M','Sex M',
+                                        'Sex M','Group S','Group S','Group S'),
+                           estimate = unlist(lapply(cbc_fixed_eff1, mean)),
+                           CI = unlist(lapply(cbc_fixed_eff1, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+cbc_table_fixed1
+                           
+```
+
+Model 2 CBC
+-----------
+Variance and covariance components
+```{r comment=""}
+#Compute correlation
+cbc_all_ge_cor1 <- mcbc_all_ge$VCV[,'traitRBC:traitWBCs.id']/
+            (sqrt(mcbc_all_ge$VCV[,'traitRBC:traitRBC.id'])*
+            sqrt(mcbc_all_ge$VCV[,'traitWBCs:traitWBCs.id']))
+
+cbc_all_ge_cor2 <- mcbc_all_ge$VCV[,'traitRBC:traitPLT.id']/
+          (sqrt(mcbc_all_ge$VCV[,'traitRBC:traitRBC.id'])*
+           sqrt(mcbc_all_ge$VCV[,'traitPLT:traitPLT.id']))
+
+cbc_all_ge_cor3 <- mcbc_all_ge$VCV[,'traitPLT:traitWBCs.id']/
+          (sqrt(mcbc_all_ge$VCV[,'traitPLT:traitPLT.id'])*
+          sqrt(mcbc_all_ge$VCV[,'traitWBCs:traitWBCs.id']))
+
+cbc_random_eff1 <- list(mcbc_all_ge$VCV[,'traitWBCs:traitWBCs.id'],
+                        mcbc_all_ge$VCV[,'traitRBC:traitRBC.id'], 
+                        mcbc_all_ge$VCV[,'traitPLT:traitPLT.id'],
+                        mcbc_all_ge$VCV[,'traitRBC:traitWBCs.id'],
+                        mcbc_all_ge$VCV[,'traitRBC:traitPLT.id'],
+                        mcbc_all_ge$VCV[,'traitWBCs:traitPLT.id'],
+                        cbc_all_ge_cor1,cbc_all_ge_cor2,cbc_all_ge_cor3)
+
+cbc_table_random1 <- data.frame(parameter = c('Variance WBC','Variance RBC',
+                                              'Variance PTL', 'Covariance RBC-WBC',
+                                              'Covariance RBC-PTL', 'Covariance WBC-PTL',
+                                              'Cor RBC-WBC',
+                                              'Cor RBC-PLT','Cor PLT-WBC'),
+                           estimate = unlist(lapply(cbc_random_eff1, mean)),
+                           CI = unlist(lapply(cbc_random_eff1, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+cbc_table_random1
+                           
+```
+
+
+Fixed effects
+```{r comment=""}
+
+cbc_fixed_eff2 <- list(mcbc_all_ge$Sol[,'traitWBCs:scale(age)'],
+                       mcbc_all_ge$Sol[,'traitRBC:scale(age)'],
+                       mcbc_all_ge$Sol[,'traitPLT:scale(age)'],
+                       mcbc_all_ge$Sol[,'traitWBCs:I(age^2)'],
+                       mcbc_all_ge$Sol[,'traitRBC:I(age^2)'],
+                       mcbc_all_ge$Sol[,'traitPLT:I(age^2)'],
+                       mcbc_all_ge$Sol[,'traitWBCs:scale(body_wt)'],
+                       mcbc_all_ge$Sol[,'traitRBC:scale(body_wt)'],
+                       mcbc_all_ge$Sol[,'traitPLT:scale(body_wt)'],
+                       mcbc_all_ge$Sol[,'traitWBCs:Grooming_eigen'],
+                       mcbc_all_ge$Sol[,'traitRBC:Grooming_eigen'],
+                       mcbc_all_ge$Sol[,'traitPLT:Grooming_eigen'],
+                       mcbc_all_ge$Sol[,'traitWBCs:scale(perc.rank)'],
+                       mcbc_all_ge$Sol[,'traitRBC:scale(perc.rank)'],
+                       mcbc_all_ge$Sol[,'traitPLT:scale(perc.rank)'],
+                       mcbc_all_ge$Sol[,'traitWBCs:sexM'],
+                       mcbc_all_ge$Sol[,'traitRBC:sexM'],
+                       mcbc_all_ge$Sol[,'traitPLT:sexM'],
+                       mcbc_all_ge$Sol[,'traitWBCs:GroupS'],
+                       mcbc_all_ge$Sol[,'traitRBC:GroupS'],
+                       mcbc_all_ge$Sol[,'traitPLT:GroupS'])
+                    
+
+cbc_table_fixed2 <- data.frame(trait = c('WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL',
+                                         'WBC','RBC','PTL','WBC','RBC','PTL',
+                                     'WBC','RBC','PTL','WBC','RBC','PTL'),
+                          parameter = c('Age','Age','Age','Age2','Age2',
+                                        'Age2','Body_wt','Body_wt','Body_wt',
+                                        'Groom_eigen','Groom_eigen',
+                                        'Groom_eigen', 'Rank','Rank',
+                                        'Rank','Sex M','Sex M','Sex M',
+                                        'Group S','Group S','Group S'),
+                           estimate = unlist(lapply(cbc_fixed_eff2, mean)),
+                           CI = unlist(lapply(cbc_fixed_eff2, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+cbc_table_fixed2
+                           
+```
+
+
+Plots
+=====
+
+```{r fig.cap="Posterior distributions from MCMCglmm models for the effect of individual attributes on organ size", fig.height= 6}
+
+age_1 <- mw_all_gd$Sol[,'traitspleen_wt:scale(age)']
+age_2 <- mw_all_gd$Sol[,'traitliver_wt:scale(age)']
+sex_1 <- mw_all_gd$Sol[,'traitspleen_wt:sexM']
+sex_2 <- mw_all_gd$Sol[,'traitliver_wt:sexM']
+body_1 <- mw_all_gd$Sol[,'traitspleen_wt:scale(body_wt)']
+body_2 <- mw_all_gd$Sol[,'traitliver_wt:scale(body_wt)']
+
+distributions <- list(Age = list(age_1,age_2),
+                      Sex = list(sex_1,sex_2),
+                      Body_mass = list(body_1,body_2))
+                     
+
+Dcolors <- list(age =c(rgb(1,0.6,0.2,0.6), rgb(0.4,0.4,0.6,0.8)),
+                sex =c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)),
+                Body_mass =c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)))
+               
+
+sublegend = list('Age'= list(c('Spleen','Liver')),
+                 'Sex: Males' = list(c('Spleen','Liver')),
+                  'Body mass' = list(c('Spleen','Liver')))
+                  
+
+par(xpd=FALSE)
+plotdensities(distributions = distributions,
+sublegend=sublegend, btylegend = "n",
+globalmaxdensity = TRUE, violine = FALSE, xlim= c(-1.6,1.6),
+xshift = c(0.4,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
+col = Dcolors, minden= 0.33, ylab="Probability density",
+ cex.lab=1.3, cex.axis=1)
+
+```
+
+
+```{r fig.cap="Posterior distributions from MCMCglmm models for the effect of individual attributes on blood cells", fig.height= 6}
+
+age_1 <- mcbc_all_gd$Sol[,'traitWBCs:scale(age)']
+age_2 <- mcbc_all_gd$Sol[,'traitRBC:scale(age)']
+age_3 <- mcbc_all_gd$Sol[,'traitPLT:scale(age)']
+sex_1 <- mcbc_all_gd$Sol[,'traitWBCs:sexM']
+sex_2 <- mcbc_all_gd$Sol[,'traitRBC:sexM']
+sex_3 <- mcbc_all_gd$Sol[,'traitPLT:sexM']
+body_1 <- mcbc_all_gd$Sol[,'traitWBCs:scale(body_wt)']
+body_2 <- mcbc_all_gd$Sol[,'traitRBC:scale(body_wt)']
+body_3 <- mcbc_all_gd$Sol[,'traitPLT:scale(body_wt)']
+
+
+distributions <- list(Age = list(age_1,age_2, age_3),
+                      Sex = list(sex_1,sex_2, sex_3),
+                      Body_mass = list(body_1,body_2,body_3))
+                     
+
+Dcolors <- list(age =c(rgb(0.8,0.8,0.8,0.6),rgb(1,0,0, 0.7), rgb(0,0.4,0.8,0.5)),
+                sex =c(rgb(0.8,0.8,0.8,0.6),rgb(1,0,0, 0.7), rgb(0,0.4,0.8,0.5)),
+                Body_mass =c(rgb(0.8,0.8,0.8,0.6), rgb(1,0,0, 0.7), rgb(0,0.4,0.8,0.5)))
+               
+
+sublegend = list('Age'= list(c('WBC','RBC','PTL')),
+                 'Sex: Males' = list(c('WBC','RBC','PTL')),
+                  'Body mass' = list(c('WBC','RBC','PTL')))
+                  
+
+par(xpd=FALSE)
+plotdensities(distributions = distributions,
+sublegend=sublegend, btylegend = "n",
+globalmaxdensity = TRUE, violine = FALSE, xlim= c(-2,2.7),
+xshift = c(0.6,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
+col = Dcolors, minden= 0.33, ylab="Probability density",
+cex.lab=1.3, cex.axis=1)
+
+```
+
+
+
+```{r fig.cap="Posterior distributions from MCMCglmm models for the effect of social status and social integration on organ size", fig.height=6}
+
+rank_1 <- mw_all_gd$Sol[,'traitspleen_wt:scale(perc.rank)']
+rank_2 <- mw_all_gd$Sol[,'traitliver_wt:scale(perc.rank)']
+gd_1 <- mw_all_gd$Sol[,'traitspleen_wt:scale(Grooming_deg)']
+gd_2 <- mw_all_gd$Sol[,'traitliver_wt:scale(Grooming_deg)']
+ge_1 <- mw_all_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen)']
+ge_2 <- mw_all_ge$Sol[,'traitliver_wt:scale(Grooming_eigen)']
+
+
+distributions <- list(Rank = list(rank_1,rank_2),
+                      Groom_deg = list(gd_1,gd_2),
+                      Groom_eigen = list(ge_1,ge_2))
+             
+                      
+Dcolors <- list(Rank =c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)),
+                Groom_deg =c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)),
+                Groom_eigen= c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)))
+
+               
+sublegend = list('Rank' = list(c('Spleen','Liver')),
+                'Grooming degree' = list(c('Spleen','Liver')),
+                'Eigenvector centrality' = list(c('Spleen','Liver')))
+
+                  
+par(xpd=FALSE)
+plotdensities(distributions = distributions,
+sublegend=sublegend, btylegend = "n",
+globalmaxdensity = TRUE, violine = FALSE, xlim= c(-0.6,0.5),
+xshift = c(0.138,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
+col = Dcolors, minden= 0.33, ylab="Probability density",
+ cex.lab=1.3, cex.axis=1)
+
+```
+
+
+```{r fig.cap="Posterior distributions from MCMCglmm models for the effect of eigenvector centrality and group on organ size", fig.height=6}
+
+ge_1 <- mw_all_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen):GroupKK']
+ge_2 <- mw_all_ge$Sol[,'traitliver_wt:scale(Grooming_eigen):GroupKK']
+ge1_1 <- mw_all_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen):GroupS']
+ge1_2 <- mw_all_ge$Sol[,'traitliver_wt:scale(Grooming_eigen):GroupS']
+ge2_1 <- mw_all_ge0$Sol[,'traitspleen_wt:scale(Grooming_eigen):Group1KK']
+ge2_2 <- mw_all_ge0$Sol[,'traitliver_wt:scale(Grooming_eigen):Group1KK']
+
+distributions <- list(Groom_eigen_KK1 = list(ge_1,ge_2),
+                      Groom_eigen_S = list(ge1_1,ge1_2),
+                      Groom_eigen_KK2= list(ge2_1,ge2_2))
+                      
+Dcolors <- list(Groom_eigen_KK1= c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)),
+                Groom_eigen_HH= c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)),
+                Groom_eigen_KK2= c(rgb(1,0.6,0.2,0.8), rgb(0.4,0.4,0.6,0.8)))
+                
+               
+sublegend = list('Eigenvector:GroupKK (HH)' = list(c('Spleen','Liver')),
+                'Eigenvector:GroupS (HH)' = list(c('Spleen','Liver')),
+                'Eigenvector:GroupKK (S)' = list(c('Spleen','Liver')))
+                 
+                  
+par(xpd=FALSE)
+plotdensities(distributions = distributions,
+sublegend=sublegend, btylegend = "n",
+globalmaxdensity = TRUE, violine = FALSE, xlim= c(-2.3,2),
+xshift = c(0.4,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
+col = Dcolors, minden= 0.33, ylab="Probability density",
+ cex.lab=1.3, cex.axis=1)
+
+```
+
+
+```{r fig.cap="Posterior distributions from MCMCglmm models for the effect of social status and social integration on blood cells", fig.height=6}
+
+rank_1 <- mcbc_all_gd$Sol[,'traitWBCs:scale(perc.rank)']
+rank_2 <- mcbc_all_gd$Sol[,'traitRBC:scale(perc.rank)']
+rank_3 <- mcbc_all_gd$Sol[,'traitPLT:scale(perc.rank)']
+gd_1 <- mcbc_all_gd$Sol[,'traitWBCs:scale(Grooming_deg)']
+gd_2 <- mcbc_all_gd$Sol[,'traitRBC:scale(Grooming_deg)']
+gd_3 <- mcbc_all_gd$Sol[,'traitPLT:scale(Grooming_deg)']
+ge_1 <- mcbc_all_ge$Sol[,'traitWBCs:scale(Grooming_eigen)']
+ge_2 <- mcbc_all_ge$Sol[,'traitRBC:scale(Grooming_eigen)']
+ge_3 <- mcbc_all_ge$Sol[,'traitPLT:scale(Grooming_eigen)']
+
+
+distributions <- list(Rank = list(rank_1,rank_2, rank_3),
+                      Grooming_deg = list(gd_1,gd_2, gd_3),
+                      Groom_eigen = list(ge_1,ge_2,ge_3))
+                     
+
+Dcolors <- list(age =c(rgb(0.8,0.8,0.8,0.6),rgb(1,0,0, 0.7), rgb(0,0.4,0.8,0.5)),
+                sex =c(rgb(0.8,0.8,0.8,0.6),rgb(1,0,0, 0.7), rgb(0,0.4,0.8,0.5)),
+                Body_mass =c(rgb(0.8,0.8,0.8,0.6), rgb(1,0,0, 0.7), rgb(0,0.4,0.8,0.5)))
+               
+
+sublegend = list('Rank'= list(c('WBC','RBC','PTL')),
+                 'Grooming degree' = list(c('WBC','RBC','PTL')),
+                  'Eigenvector centrality' = list(c('WBC','RBC','PTL')))
+                  
+
+par(xpd=FALSE)
+plotdensities(distributions = distributions,
+sublegend=sublegend, btylegend = "n",
+globalmaxdensity = TRUE, violine = FALSE, xlim= c(-1,1),
+xshift = c(-0.1,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
+col = Dcolors, minden= 0.33, ylab="Probability density",
+cex.lab=1.3, cex.axis=1)
+
+```
+
+
+```{r message=FALSE, fig.cap="Scaled values of organ weights across groups"}
+
+#Reformat data table to plot have a single column that contain both variables
+w_group <- weight_dataset %>% select (Group, liver_wt,spleen_wt) %>% rename(Liver = liver_wt, Spleen= spleen_wt) 
+w_group$Liver <- scale(w_group$Liver)
+w_group$Spleen <- scale(w_group$Spleen)
+w_plot <- melt(w_group, id = c('Group'))
+
+#Plot
+ggplot(w_plot, aes(x=Group, y=value, fill= variable)) +
+geom_boxplot() +  theme_bw() + 
+scale_fill_manual(values= alpha(c('orange','mediumpurple4'),0.5)) +
+geom_jitter(color="black", size= 1.5, alpha=0.65) + ylim(-4,4.2)+
+labs(x= "Group", y= "Scaled weight", fill='Variable') 
+
+
+
+```
+
+```{r, fig.cap="Scaled values of blood cells across groups"}
+#Reformat data table to plot have a single column that contain the three cell types
+cbc_group <- cbc_dataset %>% select (Group, WBCs, RBC, PLT) 
+cbc_group$RBC <- scale(cbc_group$RBC)
+cbc_group$WBCs <- scale(cbc_group$WBCs)
+cbc_group$PLT <- scale(cbc_group$PLT)
+cbc_plot <- melt(cbc_group, id = c('Group'))
+
+#Plot
+ggplot(cbc_plot, aes(x=Group, y=value, fill= variable)) +
+  geom_boxplot() +
+  scale_fill_manual(values= alpha(c("grey82", "red","cornflowerblue"), 0.55)) +
+  geom_jitter(color="black", size= 1.5, alpha=0.6) +
+  labs(x= "Group", y= "Scaled count", fill="Variable") +  theme_bw() 
+
+
+
+
+```
+
+Supplementary analysis
+=======
+
+Social status effect on liver
+--------------------
+
+```{r results="hide"}
+
+mw_all_ss <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
+                              trait:(scale(age) + I(age^2)) + 
+                              trait:scale(body_wt) + trait:scale(perc.rank)
+                              + trait:Group + trait:sex,
+                            random =~us(trait):id,
+                           rcov=~ idh(trait):units,
+                           family = c('gaussian','gaussian'),
+                           prior = prior_sl,
+                          nitt= 300000,
+                          burnin = 2000,
+                          thin= 100,
+                           data= as.data.frame(weight_dataset))
+
+```
+
+Fixed effects
+```{r comment=""}
+
+sl_all_fixed_eff1 <- list(mw_all_ss$Sol[,'traitspleen_wt:scale(age)'],
+                        mw_all_ss$Sol[,'traitliver_wt:scale(age)'],
+                        mw_all_ss$Sol[,'traitspleen_wt:I(age^2)'], 
+                        mw_all_ss$Sol[,'traitliver_wt:I(age^2)'],
+                        mw_all_ss$Sol[,'traitspleen_wt:scale(body_wt)'],
+                        mw_all_ss$Sol[,'traitliver_wt:scale(body_wt)'],
+                        mw_all_ss$Sol[,'traitspleen_wt:scale(perc.rank)'], 
+                        mw_all_ss$Sol[,'traitliver_wt:scale(perc.rank)'],
+                        mw_all_ss$Sol[,'traitspleen_wt:GroupKK'],
+                        mw_all_ss$Sol[,'traitliver_wt:GroupKK'],
+                        mw_all_ss$Sol[,'traitspleen_wt:GroupS'],
+                        mw_all_ss$Sol[,'traitliver_wt:GroupS'],
+                        mw_all_ss$Sol[,'traitspleen_wt:sexM'],
+                        mw_all_ss$Sol[,'traitliver_wt:sexM'])
+
+sl_all_table_fixed_eff1 <- data.frame(trait = c('Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver', 
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver'),
+                            parameter = c('Age','Age',
+                                          'Age2', 'Age2',
+                                          'Body_wt','Body_wt',
+                                          'Rank','Rank','Group KK',
+                                          'Group KK', 'Group S',
+                                          'Group S', 'Sex','Sex'),
+                           estimate = unlist(lapply(sl_all_fixed_eff1, mean)),
+                           CI = unlist(lapply(sl_all_fixed_eff1, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+sl_all_table_fixed_eff1
+
+```
+
+Plot for the relationship between eigenvector centrality and organs size in group S.
+```{r message=FALSE, fig.cap="Relationship between social connectedness and organ size in group S"}
+
+S_weight <- weight_dataset %>% filter(Group == 'S')
+S_weight %<>% select (Grooming_eigen, spleen_wt, liver_wt) 
+S_weight$spleen_wt <- scale(S_weight$spleen_wt)
+S_weight$liver_wt <- scale(S_weight$liver_w)
+S_weight %<>% rename(Spleen = spleen_wt, Liver= liver_wt)
+S_plot <- melt(S_weight, id = c('Grooming_eigen'))
+
+
+ggplot(S_plot, aes(Grooming_eigen, value)) + 
+  geom_point(size = 3, alpha= 0.4) +
+  geom_smooth(method=lm , aes(col= variable), se=FALSE)+
+  xlab("Eigenvector centrality")+
+  ylab("Scaled weight") +
+  theme(legend.position="none")+
+  facet_wrap(~variable)
+
+
+
+```
+
+
