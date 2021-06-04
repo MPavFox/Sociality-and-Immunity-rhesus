@@ -25,6 +25,7 @@ library(dplyr)
 library(ggplot2)
 library(ViolineHills)
 library(reshape2)
+library(corrplot)
 
 ```
 
@@ -39,6 +40,8 @@ weight_dataset <- read.csv("weight_dataset.csv")
 
 #data set including animals with behavour and cbc data
 cbc_dataset <- read.csv("cbc_dataset.csv")
+
+
 
 #Check sample size by sex
 table(weight_dataset$sex)#weight data set
@@ -129,7 +132,7 @@ prior_sl <- list(R= list(R= list(V=diag(2)*0.0001, nu = 1.002, fix= 1)),
 #Model 1 Spleen-Liver
 mw_all_gd <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
                               trait:(scale(age) + I(age^2)) + 
-                              trait:scale(body_wt) + trait:scale(Grooming_deg) + 
+                              trait:scale(body_wt) + trait:scale(Grooming_deg) +
                              trait:scale(perc.rank) + trait:Group + trait:sex,
                             random =~us(trait):id,
                            rcov=~ idh(trait):units,
@@ -141,7 +144,22 @@ mw_all_gd <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 +
                            data= as.data.frame(weight_dataset))
 
 
-#Model 2 Spleen-Liver
+#Model 2 Spleen-Liver: main effect
+mw_all_ge_me <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
+                        trait:(scale(age) + I(age^2)) + 
+                        trait:scale(body_wt) + trait:scale(Grooming_eigen) +
+                          trait:Group + 
+                        trait:scale(perc.rank)  + trait:sex , 
+                         random =~us(trait):id,
+                         rcov=~ idh(trait):units,
+                         family = c('gaussian','gaussian'),
+                         prior = prior_sl,
+                         nitt= 300000,
+                         burnin = 2000,
+                         thin= 100,
+                         data= as.data.frame(weight_dataset))
+
+#Model 2 spleen-liver: interaction term
 mw_all_ge <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
                         trait:(scale(age) + I(age^2)) + 
                         trait:scale(body_wt) + trait:(scale(Grooming_eigen)*Group) + 
@@ -155,8 +173,9 @@ mw_all_ge <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 +
                          thin= 100,
                          data= as.data.frame(weight_dataset))
 
+
 #Change order of levels in Group to get the estimate for all pair-wise comparisons
-weight_dataset$Group1 <- factor(weight_dataset$Group, levels = c('S','HH','KK'))
+weight_dataset$Group1 <- factor(weight_dataset$Group, levels = c('KK','S','HH'))
 
 #Rerun Model 2 spleen-liver
 mw_all_ge0 <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
@@ -181,7 +200,7 @@ prior_cbc <- list(R= list(R= list(V=diag(3)*0.0001, nu = 1.002, fix= 1)),
 #Model 1 CBC
 mcbc_all_gd <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ - 1 +
                            trait:(scale(age) + I(age^2)) + 
-                           trait:scale(body_wt) + trait:scale(Grooming_deg) + 
+                           trait:scale(body_wt) + trait:scale(Grooming_deg) +
                           trait:scale(perc.rank) + trait:sex + trait:Group, 
                          random =~us(trait):id,
                          rcov=~ idh(trait):units,
@@ -224,7 +243,7 @@ p_exp1 <- list(R= list(R= list(V=diag(2)*0.0001, nu = 1.002, fix= 1)),
 #Model 1 spleen-liver with parameter expanded priors
 mw_all_gd_pexp <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
                              trait:(scale(age) + I(age^2)) + 
-                           trait:scale(body_wt) + trait:Grooming_deg + 
+                           trait:scale(body_wt) + trait:scale(Grooming_deg) + 
                              trait:Group + trait:scale(perc.rank) + trait:sex , 
                          random =~us(trait):id,
                          rcov=~ idh(trait):units,
@@ -246,7 +265,7 @@ p_exp2 <- list(R= list(R= list(V=diag(3)*0.0001, nu = 1.002, fix= 1)),
 #Model 1 CBC with parameter expanded priors
 mcbc_all_gd_pexp <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ -1 + 
                               trait:(scale(age) + I(age^2)) + 
-                           trait:scale(body_wt) + trait:Grooming_deg +
+                           trait:scale(body_wt) + trait:scale(Grooming_deg) +
                           trait:scale(perc.rank) + trait:sex + trait:Group, 
                          random =~us(trait):id,
                          rcov=~ idh(trait):units,
@@ -267,7 +286,7 @@ Sensitiviy to priors testing Model 2 for both datasets
 #Model 2 spleen-liver with parameter expanded priors
 mw_all_ge_pexp <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 + 
                         trait:(scale(age) + I(age^2)) + 
-                        trait:scale(body_wt) + trait:(Grooming_eigen*Group) + 
+                        trait:scale(body_wt) + trait:scale(Grooming_eigen)*Group + 
                         trait:scale(perc.rank)  + trait:sex , 
                          random =~us(trait):id,
                          rcov=~ idh(trait):units,
@@ -282,7 +301,7 @@ mw_all_ge_pexp <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~  -1 +
 #Model 2 CBC with parameter expanded priors
 mcbc_all_ge_pexp <- MCMCglmm(cbind(scale(WBCs),scale(RBC), scale(PLT)) ~ -1 + 
                            trait:(scale(age) + I(age^2)) + 
-                           trait:scale(body_wt) + trait:Grooming_eigen +
+                           trait:scale(body_wt) + trait:scale(Grooming_eigen) +
                           trait:scale(perc.rank) + trait:sex + trait:Group, 
                          random =~us(trait):id,
                          rcov=~ idh(trait):units,
@@ -791,7 +810,7 @@ plotdensities(distributions = distributions,
 sublegend=sublegend, btylegend = "n",
 globalmaxdensity = TRUE, violine = FALSE, xlim= c(-1.6,1.6),
 xshift = c(0.4,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
-col = Dcolors, minden= 0.33, ylab="Probability density",
+col = Dcolors, minden= 0.33, ylab="Posterior distribution",
  cex.lab=1.3, cex.axis=1)
 
 ```
@@ -830,21 +849,20 @@ plotdensities(distributions = distributions,
 sublegend=sublegend, btylegend = "n",
 globalmaxdensity = TRUE, violine = FALSE, xlim= c(-2,2.7),
 xshift = c(0.6,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
-col = Dcolors, minden= 0.33, ylab="Probability density",
+col = Dcolors, minden= 0.33, ylab="Posterior distribution",
 cex.lab=1.3, cex.axis=1)
 
 ```
 
 
-
 ```{r fig.cap="Posterior distributions from MCMCglmm models for the effect of social status and social integration on organ size", fig.height=6}
 
 rank_1 <- mw_all_gd$Sol[,'traitspleen_wt:scale(perc.rank)']
-rank_2 <- mw_all_gd$Sol[,'traitliver_wt:scale(perc.rank)']
+rank_2 <- mw_all_ge_me$Sol[,'traitliver_wt:scale(perc.rank)']
 gd_1 <- mw_all_gd$Sol[,'traitspleen_wt:scale(Grooming_deg)']
 gd_2 <- mw_all_gd$Sol[,'traitliver_wt:scale(Grooming_deg)']
-ge_1 <- mw_all_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen)']
-ge_2 <- mw_all_ge$Sol[,'traitliver_wt:scale(Grooming_eigen)']
+ge_1 <- mw_all_ge_me$Sol[,'traitspleen_wt:scale(Grooming_eigen)']
+ge_2 <- mw_all_ge_me$Sol[,'traitliver_wt:scale(Grooming_eigen)']
 
 
 distributions <- list(Rank = list(rank_1,rank_2),
@@ -865,9 +883,9 @@ sublegend = list('Rank' = list(c('Spleen','Liver')),
 par(xpd=FALSE)
 plotdensities(distributions = distributions,
 sublegend=sublegend, btylegend = "n",
-globalmaxdensity = TRUE, violine = FALSE, xlim= c(-0.6,0.5),
-xshift = c(0.138,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
-col = Dcolors, minden= 0.33, ylab="Probability density",
+globalmaxdensity = TRUE, violine = FALSE, xlim= c(-0.5,0.5),
+xshift = c(-0,0), yshift = c(0.1,0),cexsubl = 1, xlab = "Effect size", adjust = 1.5,
+col = Dcolors, minden= 0.33, ylab="Posterior distribution",
  cex.lab=1.3, cex.axis=1)
 
 ```
@@ -1068,7 +1086,51 @@ ggplot(S_plot, aes(Grooming_eigen, value)) +
   facet_wrap(~variable)
 
 
+```
+
+
+Plots for the correlation between measures of sociality: weight dataset 
+```{r, fig.cap="Correlation plot for measures of sociality: weigh dataset"}
+#Organ size data
+cor.mat1 = weight_dataset %>% select(Rank = perc.rank, Grooming_deg, Grooming_eigen)
+M1 = cor(cor.mat1, method = "pearson", use = "complete.obs")
+corrplot.mixed(M1)
+
+```
+
+Plots for the correlation between measures of sociality: cbc dataset 
+```{r, fig.cap="Correlation plot for measures of sociality: weigh dataset"}
+#Blood measures data
+cor.mat2 = cbc_dataset %>% select(Rank= perc.rank,Grooming_deg,Grooming_eigen)
+M2 = cor(cor.mat2, method = "pearson", use = "complete.obs")
+corrplot.mixed(M2)
 
 ```
 
 
+Rank distribution: weight dataset
+```{r}
+#Organ size data
+hist(weight_dataset$perc.rank,
+     main = "",
+     xlab = 'Animals outranked (%)',
+     border = 'black',
+     col = alpha('orange', 0.4),
+     xlim = c(0,100),
+     breaks = 30)
+
+```
+
+Rank distrribution: cbc dataset
+```{r}
+
+#Blood measures data
+hist(cbc_dataset$perc.rank,
+     main = "",
+     xlab = 'Animals outranked (%)',
+     border = 'black',
+     col = alpha('red', 0.4),
+     xlim = c(0,100),
+     breaks = 30)
+
+```
