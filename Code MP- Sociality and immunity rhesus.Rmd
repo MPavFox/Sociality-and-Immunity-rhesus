@@ -1006,14 +1006,18 @@ ggplot(cbc_plot, aes(x=Group, y=value, fill= variable)) +
 Supplementary analysis
 =======
 
-Social status effect on liver
+Removing high-ranking female from S
 --------------------
+Model 1 on organ sizes
 
 ```{r results="hide"}
 
-mw_all_ss <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
+weight_dataset1 = weight_dataset %>% filter(id != '7F7')
+
+mw_no_fem_gd <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
                               trait:(scale(age) + I(age^2)) + 
-                              trait:scale(body_wt) + trait:scale(perc.rank)
+                              trait:scale(body_wt) + trait:scale(perc.rank) +
+                              trait:scale(Grooming_deg) 
                               + trait:Group + trait:sex,
                             random =~us(trait):id,
                            rcov=~ idh(trait):units,
@@ -1022,49 +1026,195 @@ mw_all_ss <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 +
                           nitt= 300000,
                           burnin = 2000,
                           thin= 100,
-                           data= as.data.frame(weight_dataset))
+                           data= as.data.frame(weight_dataset1))
 
 ```
 
-Fixed effects
+Model 2 on organ sizes: main effect
+```{r results="hide"}
+
+mw_no_fem_ge_me <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
+                              trait:(scale(age) + I(age^2)) + 
+                              trait:scale(body_wt) + trait:scale(perc.rank) +
+                              trait:scale(Grooming_eigen) 
+                              + trait:Group + trait:sex,
+                            random =~us(trait):id,
+                           rcov=~ idh(trait):units,
+                           family = c('gaussian','gaussian'),
+                           prior = prior_sl,
+                          nitt= 300000,
+                          burnin = 2000,
+                          thin= 100,
+                           data= as.data.frame(weight_dataset1))
+
+```
+
+Model 2 on organ sizes:  interaction
+```{r results="hide"}
+
+mw_no_fem_ge <- MCMCglmm(cbind(scale(spleen_wt), scale(liver_wt)) ~ -1 + 
+                              trait:(scale(age) + I(age^2)) + 
+                              trait:scale(body_wt) + trait:scale(perc.rank) +
+                              trait:(scale(Grooming_eigen)*Group) + trait:sex,
+                            random =~us(trait):id,
+                           rcov=~ idh(trait):units,
+                           family = c('gaussian','gaussian'),
+                           prior = prior_sl,
+                          nitt= 300000,
+                          burnin = 2000,
+                          thin= 100,
+                           data= as.data.frame(weight_dataset1))
+
+```
+
+
+Fixed effects Model 1
 ```{r comment=""}
 
-sl_all_fixed_eff1 <- list(mw_all_ss$Sol[,'traitspleen_wt:scale(age)'],
-                        mw_all_ss$Sol[,'traitliver_wt:scale(age)'],
-                        mw_all_ss$Sol[,'traitspleen_wt:I(age^2)'], 
-                        mw_all_ss$Sol[,'traitliver_wt:I(age^2)'],
-                        mw_all_ss$Sol[,'traitspleen_wt:scale(body_wt)'],
-                        mw_all_ss$Sol[,'traitliver_wt:scale(body_wt)'],
-                        mw_all_ss$Sol[,'traitspleen_wt:scale(perc.rank)'], 
-                        mw_all_ss$Sol[,'traitliver_wt:scale(perc.rank)'],
-                        mw_all_ss$Sol[,'traitspleen_wt:GroupKK'],
-                        mw_all_ss$Sol[,'traitliver_wt:GroupKK'],
-                        mw_all_ss$Sol[,'traitspleen_wt:GroupS'],
-                        mw_all_ss$Sol[,'traitliver_wt:GroupS'],
-                        mw_all_ss$Sol[,'traitspleen_wt:sexM'],
-                        mw_all_ss$Sol[,'traitliver_wt:sexM'])
+no_fem_fixed_eff1 <- list(mw_no_fem_gd$Sol[,'traitspleen_wt:scale(age)'],
+                        mw_no_fem_gd$Sol[,'traitliver_wt:scale(age)'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:I(age^2)'], 
+                        mw_no_fem_gd$Sol[,'traitliver_wt:I(age^2)'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:scale(body_wt)'],
+                        mw_no_fem_gd$Sol[,'traitliver_wt:scale(body_wt)'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:scale(perc.rank)'], 
+                        mw_no_fem_gd$Sol[,'traitliver_wt:scale(perc.rank)'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:scale(Grooming_deg)'], 
+                        mw_no_fem_gd$Sol[,'traitliver_wt:scale(Grooming_deg)'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:GroupKK'],
+                        mw_no_fem_gd$Sol[,'traitliver_wt:GroupKK'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:GroupS'],
+                        mw_no_fem_gd$Sol[,'traitliver_wt:GroupS'],
+                        mw_no_fem_gd$Sol[,'traitspleen_wt:sexM'],
+                        mw_no_fem_gd$Sol[,'traitliver_wt:sexM'])
 
-sl_all_table_fixed_eff1 <- data.frame(trait = c('Spleen','Liver',
+no_fem_table_fixed_eff1 <- data.frame(trait = c('Spleen','Liver',
                                           'Spleen','Liver',
                                           'Spleen','Liver',
                                           'Spleen','Liver', 
+                                          'Spleen','Liver',
                                           'Spleen','Liver',
                                           'Spleen','Liver',
                                           'Spleen','Liver'),
                             parameter = c('Age','Age',
                                           'Age2', 'Age2',
                                           'Body_wt','Body_wt',
-                                          'Rank','Rank','Group KK',
+                                          'Rank','Rank','Groom deg',
+                                          'Groom deg',
+                                          'Group KK',
                                           'Group KK', 'Group S',
                                           'Group S', 'Sex','Sex'),
-                           estimate = unlist(lapply(sl_all_fixed_eff1, mean)),
-                           CI = unlist(lapply(sl_all_fixed_eff1, function(x){
+                           estimate = unlist(lapply(no_fem_fixed_eff1, mean)),
+                           CI = unlist(lapply(no_fem_fixed_eff1, function(x){
                              paste0("[", round(HPDinterval(x)[1],2)," ; ", 
                                     round(HPDinterval(x)[2],2), "]")})))
 
-sl_all_table_fixed_eff1
+no_fem_table_fixed_eff1
 
 ```
+
+
+Fixed effects Model 2: main effect
+```{r comment=""}
+
+no_fem_fixed_eff2 <- list(mw_no_fem_ge_me$Sol[,'traitspleen_wt:scale(age)'],
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:scale(age)'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:I(age^2)'], 
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:I(age^2)'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:scale(body_wt)'],
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:scale(body_wt)'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:scale(perc.rank)'], 
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:scale(perc.rank)'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:scale(Grooming_eigen)'], 
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:scale(Grooming_eigen)'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:GroupKK'],
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:GroupKK'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:GroupS'],
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:GroupS'],
+                        mw_no_fem_ge_me$Sol[,'traitspleen_wt:sexM'],
+                        mw_no_fem_ge_me$Sol[,'traitliver_wt:sexM'])
+
+no_fem_table_fixed_eff2 <- data.frame(trait = c('Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver', 
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver'),
+                            parameter = c('Age','Age',
+                                          'Age2', 'Age2',
+                                          'Body_wt','Body_wt',
+                                          'Rank','Rank','Groom eigen',
+                                          'Groom eigen',
+                                          'Group KK',
+                                          'Group KK', 'Group S',
+                                          'Group S', 'Sex','Sex'),
+                           estimate = unlist(lapply(no_fem_fixed_eff2, mean)),
+                           CI = unlist(lapply(no_fem_fixed_eff2, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+no_fem_table_fixed_eff2
+
+```
+
+Fixed effects Model 2: interaction
+```{r comment=""}
+
+no_fem_fixed_eff3 <- list(mw_no_fem_ge$Sol[,'traitspleen_wt:scale(age)'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:scale(age)'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:I(age^2)'], 
+                        mw_no_fem_ge$Sol[,'traitliver_wt:I(age^2)'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:scale(body_wt)'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:scale(body_wt)'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:scale(perc.rank)'], 
+                        mw_no_fem_ge$Sol[,'traitliver_wt:scale(perc.rank)'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen)'], 
+                        mw_no_fem_ge$Sol[,'traitliver_wt:scale(Grooming_eigen)'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:GroupKK'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:GroupKK'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:GroupS'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:GroupS'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:sexM'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:sexM'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen):GroupKK'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:scale(Grooming_eigen):GroupKK'],
+                        mw_no_fem_ge$Sol[,'traitspleen_wt:scale(Grooming_eigen):GroupS'],
+                        mw_no_fem_ge$Sol[,'traitliver_wt:scale(Grooming_eigen):GroupS'])
+
+no_fem_table_fixed_eff3 <- data.frame(trait = c('Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver', 
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver',
+                                          'Spleen','Liver'),
+                            parameter = c('Age','Age',
+                                          'Age2', 'Age2',
+                                          'Body_wt','Body_wt',
+                                          'Rank','Rank','Groom eigen',
+                                          'Groom eigen',
+                                          'Group KK',
+                                          'Group KK', 'Group S',
+                                          'Group S', 'Sex','Sex',
+                                          'Groom_eigen x KK',
+                                          'Groom_eigen x KK',
+                                          'Groom_eigen x S',
+                                          'Groom_eigen x S'),
+                           estimate = unlist(lapply(no_fem_fixed_eff3, mean)),
+                           CI = unlist(lapply(no_fem_fixed_eff3, function(x){
+                             paste0("[", round(HPDinterval(x)[1],2)," ; ", 
+                                    round(HPDinterval(x)[2],2), "]")})))
+
+no_fem_table_fixed_eff3
+
+```
+
+
 
 Plot for the relationship between eigenvector centrality and organs size in group S.
 ```{r message=FALSE, fig.cap="Relationship between social connectedness and organ size in group S"}
